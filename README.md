@@ -1,2 +1,2 @@
 # empower-pdf
-Uses iText PDF to allow bulk PDF changes.
+Uses iText PDF to make bulk PDF changes.
