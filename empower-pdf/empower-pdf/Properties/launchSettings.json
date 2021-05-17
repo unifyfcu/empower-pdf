@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "empower-pdf": {
+      "commandName": "Project",
+      "commandLineArgs": "-s \"C:\\tmp\\pdf-process\\Source\" -d \"C:\\tmp\\pdf-process\" -t \"COPY\" -v",
+      "workingDirectory": "c:\\tmp\\watermark"
+    }
+  }
+}
