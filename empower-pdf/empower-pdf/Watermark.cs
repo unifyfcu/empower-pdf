@@ -1,6 +1,4 @@
-﻿using Ghostscript.NET;
-using Ghostscript.NET.Processor;
-using iText.IO.Font;
+﻿using iText.IO.Font;
 using iText.IO.Font.Constants;
 using iText.Kernel.Colors;
 using iText.Kernel.Font;
@@ -12,8 +10,10 @@ using iText.Kernel.Pdf.Extgstate;
 using iText.Kernel.Pdf.Xobject;
 using Serilog;
 using System;
-using System.Collections.Generic;
 using System.IO;
+using Cube.Pdf.Ghostscript;
+using File = System.IO.File;
+using Rectangle = iText.Kernel.Geom.Rectangle;
 
 namespace empower_pdf
 {
@@ -53,6 +53,20 @@ namespace empower_pdf
             PdfCompare(file);
         }
 
+        private void ValidatePath(string path, bool exist = false)
+        {
+            var test = !Directory.Exists(path);
+            if (exist && test)
+            {
+                var m = $"The path: {path} does not exist!";
+                Log.Error(m);
+                throw new Exception(m);
+            }
+
+            if (test)
+                Directory.CreateDirectory(path);
+        }
+
         /// <summary>
         /// Watermarks a PDF file.
         /// </summary>
@@ -64,15 +78,7 @@ namespace empower_pdf
             var destinationPath = $"{_operation.DestinationPath}\\{PathWatermarked}";
             var destinationFile = $"{destinationPath}\\{fileName}";
 
-            if (!Directory.Exists(_operation.SourcePath))
-            {
-                var m = $"Source directory: '{_operation.SourcePath}', does not exist!";
-                Log.Error(m);
-                throw new Exception(m);
-            }
-
-            if (!Directory.Exists(destinationPath))
-                Directory.CreateDirectory(destinationPath);
+            ValidatePath(destinationPath);
 
             const float watermarkTrimmingRectangleWidth = 600;
             const float watermarkTrimmingRectangleHeight = 600;
@@ -170,54 +176,20 @@ namespace empower_pdf
             var destinationPath = $"{_operation.DestinationPath}\\{PathGreyscale}";
             var destinationFile = $"{destinationPath}\\{fileName}";
 
-            if (!File.Exists(sourceFile))
+            ValidatePath(destinationPath);
+
+            var converter = new PdfConverter
             {
-                var m = $"Watermarked file: '{sourceFile}', does not exist!";
-                Log.Error(m);
-                throw new Exception(m);
-            }
-
-            if (!Directory.Exists(destinationPath))
-                Directory.CreateDirectory(destinationPath);
-
-            //GhostscriptPipedOutput gsPipedOutput = new GhostscriptPipedOutput();
-            using var gsPipedOutput = new GhostscriptPipedOutput();
-
-            string outputPipeHandle = "%handle%" + int.Parse(gsPipedOutput.ClientHandle).ToString("X2");
-            using GhostscriptProcessor processor = new GhostscriptProcessor();
-
-            List<string> switches = new List<string>();
-            switches.Add("-empty");
-            switches.Add("-dQUIET");
-            switches.Add("-dSAFER");
-            switches.Add("-dBATCH");
-            switches.Add("-dNOPAUSE");
-            switches.Add("-dNOPROMPT");
-            switches.Add("-sProcessColorModel=DeviceGray");
-            switches.Add("-sColorConversionStrategy=Gray");
-            switches.Add("-dOverrideICC");
-            switches.Add("-sDEVICE=pdfwrite");
-            switches.Add("-o" + outputPipeHandle);
-            switches.Add("-q");
-            switches.Add("-f");
-            switches.Add(sourceFile);
-
-            try
-            {
-                processor.StartProcessing(switches.ToArray(), null);
-
-                byte[] rawDocumentData = gsPipedOutput.Data;
-
-                File.WriteAllBytes(destinationFile, rawDocumentData);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex.Message);
-            }
-            finally
-            {
-                gsPipedOutput.Dispose();
-            }
+                Paper = Paper.Auto,
+                Orientation = Orientation.Auto,
+                ColorMode = ColorMode.Grayscale,
+                Resolution = 600,
+                Compression = Encoding.Jpeg,
+                Downsampling = Downsampling.None,
+                EmbedFonts = false,
+                Quiet = true
+            };
+            converter.Invoke(sourceFile, destinationFile);
         }
 
         /// <summary>
@@ -231,24 +203,7 @@ namespace empower_pdf
             var destinationPath = $"{_operation.DestinationPath}\\{PathFinished}";
             var destination = $"{destinationPath}\\{fileName}";
 
-            bool.TryParse((!File.Exists(source1)).ToString(), out var isSource1);
-            bool.TryParse((!File.Exists(source2)).ToString(), out var isSource2);
-
-            if (isSource1 || isSource2)
-            {
-                var m = "";
-
-                if (isSource1)
-                    m = $"Watermarked file: '{source1}', does not exist!";
-                if (isSource2)
-                    m = $"Greyscale file: '{source2}', does not exist!";
-
-                Log.Error(m);
-                throw new Exception(m);
-            }
-
-            if (!Directory.Exists(destinationPath))
-                Directory.CreateDirectory(destinationPath);
+            ValidatePath(destinationPath);
 
             var attributesSource1 = new FileInfo(source1).Length;
             var attributesSource2 = new FileInfo(source2).Length;

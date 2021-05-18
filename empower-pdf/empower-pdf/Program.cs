@@ -1,85 +1,103 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using CommandLine;
+﻿using CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
-using System.Collections.Concurrent;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using static System.IO.Directory;
+using System.Linq;
+using System.Threading.Tasks;
+using ShellProgressBar;
+
 
 namespace empower_pdf
 {
     internal class Program
     {
-        public const string OutputTemplate = "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}";
-        public const string LogName = ".log";
-        public static readonly string AppStarted = $"Application Start: {DateTime.Now}";
-        public static LoggingLevelSwitch LevelSwitch = new LoggingLevelSwitch();
-        //public static Options Option { get; set; }
+        private const string OutputTemplate = "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}";
+        private static readonly string AppStarted = $"Application Start: {DateTime.Now}";
+        private static readonly LoggingLevelSwitch LevelSwitch = new();
+
+        private static TimeSpan TimeRemaining(int step, int steps, DateTime start)
+        {
+            var totalTime = DateTime.Now - start;
+            return TimeSpan.FromSeconds((totalTime.TotalSeconds / step) * steps);
+        }
 
         private static Task Main(string[] args)
         {
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .WriteTo.Console(outputTemplate: OutputTemplate)
-                .WriteTo.File(LogName, rollingInterval: RollingInterval.Day, outputTemplate: OutputTemplate)
-                .CreateLogger();
-            Log.Information(AppStarted);
-            Log.Information("Information output enabled.");
-            IArguments options = Parser.Default.ParseArguments<Arguments>(args).MapResult(GetOptions, HandleParseError);
-
-            if (options.Verbose)
+            var arguments = ConfigureArguments(args);
+            ConfigureLogging(arguments);
+            using var host = CreateHostBuilder(arguments).Build();
+            var files = GetFiles(arguments.SourcePath);
+            var stopwatch = new Stopwatch();
+            var start = DateTime.Now;
+            var steps = files.Length;
+            var paddingLength = steps.ToString().Length;
+            var step = 0;
+            using var progressBar = new ProgressBar(steps, "Processing files.", new ProgressBarOptions
             {
-                LevelSwitch.MinimumLevel = LogEventLevel.Verbose;
-                Log.Verbose("Verbose output enabled.");
-            }
-
-            // var options = new Options(args);
-
-            using var host =  Host.CreateDefaultBuilder(args)
-                .ConfigureServices((_, services) =>
-                    services.AddTransient<IArguments>(p => options)
-                        .AddTransient<IWatermarkContract, WatermarkService>())
-                .Build();
-
-            var files = Directory.GetFiles(options.SourcePath);
-            var time = new Stopwatch();
-
-            using (var progress = new ProgressBar(files.Length))
+                ForegroundColor = ConsoleColor.Green,
+                ForegroundColorDone = ConsoleColor.DarkGreen,
+                BackgroundColor = ConsoleColor.DarkGray,
+                BackgroundCharacter = '\u2591',
+                ProgressCharacter = '\u2588',
+                ProgressBarOnBottom = true,
+                ShowEstimatedDuration = true,
+                DisplayTimeInRealTime = true,
+                EnableTaskBarProgress = true
+            });
+            foreach (var file in files)
             {
-                time.Reset();
-                time.Start();
-                foreach (var file in files)
-                {
-                    progress.Report();
-                    var fileName = file.Replace($"{options.SourcePath}\\", "");
-                    ScopedProcess(host.Services, fileName);
-                }
-                time.Stop();
-                progress.Report();
+                step++;
+                var fileName = file.Replace($"{arguments.SourcePath}\\", "");
+                progressBar.Tick(TimeRemaining(step, steps, start), $"Step: {step.ToString().PadLeft(paddingLength)} of {steps}; Processing file: {fileName}.");
+                ScopedProcess(host.Services, fileName);
             }
-            var timeForeach = time.Elapsed;
-
-
+            progressBar.Dispose();
+            stopwatch.Stop();
             Log.Information($"Application Finished: {DateTime.Now}");
-            Log.Information($"Time taken: {timeForeach}");
+            Log.Information($"Time taken: {stopwatch.Elapsed}");
             return host.RunAsync();
         }
 
-        public static Arguments GetOptions(Arguments opts)
+        private static IHostBuilder CreateHostBuilder(IArguments arguments) =>
+            Host.CreateDefaultBuilder()
+                .ConfigureServices((_, services) =>
+                    services.AddTransient(_ => arguments)
+                        .AddTransient<IWatermarkContract, WatermarkService>());
+
+        private static void ConfigureLogging(IArguments arguments)
         {
-            if (!opts.Verbose) return opts;
-            LevelSwitch.MinimumLevel = LogEventLevel.Verbose;
-            Log.Verbose("Verbose output enabled.");
-            return opts;
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .WriteTo.File($"{arguments.DestinationPath}\\.log", rollingInterval: RollingInterval.Day, outputTemplate: OutputTemplate)
+                .CreateLogger();
+            Log.Information(AppStarted);
+            Log.Information("Information output enabled.");
         }
 
-        public static Arguments HandleParseError(IEnumerable<Error> errs)
+        private static IArguments ConfigureArguments(string[] args)
+        {
+            IArguments arguments = Parser.Default.ParseArguments<Arguments>(args).MapResult(GetArguments, HandleParseError);
+            if (!arguments.Verbose) return arguments;
+            LevelSwitch.MinimumLevel = LogEventLevel.Verbose;
+            Log.Verbose("Verbose output enabled.");
+            return arguments;
+        }
+
+        private static Arguments GetArguments(Arguments arguments)
+        {
+            if (!arguments.Verbose) return arguments;
+            LevelSwitch.MinimumLevel = LogEventLevel.Verbose;
+            Log.Verbose("Verbose output enabled.");
+            return arguments;
+        }
+
+        private static Arguments HandleParseError(IEnumerable<Error> errs)
         {
             var enumerable = errs as Error[] ?? errs.ToArray();
             foreach (var err in enumerable)
@@ -93,12 +111,8 @@ namespace empower_pdf
         {
             using var serviceScope = services.CreateScope();
             var provider = serviceScope.ServiceProvider;
-
-            //do the actual work here
             var service = provider.GetService<IWatermarkContract>();
-
-            Debug.Assert(service != null, nameof(service) + " != null");
-            service.ProcessFiles(fileName);
+            service?.ProcessFiles(fileName);
         }
     }
 }

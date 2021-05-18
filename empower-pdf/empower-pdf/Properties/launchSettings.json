@@ -2,7 +2,7 @@
   "profiles": {
     "empower-pdf": {
       "commandName": "Project",
-      "commandLineArgs": "-s \"C:\\tmp\\pdf-process\\Source\" -d \"C:\\tmp\\pdf-process\" -t \"COPY\" -v",
+      "commandLineArgs": "-s \"c:\\tmp\\pdf-process\\Source\" -d \"c:\\tmp\\pdf-process\"",
       "workingDirectory": "c:\\tmp\\watermark"
     }
   }
